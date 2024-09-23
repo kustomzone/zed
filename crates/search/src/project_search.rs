@@ -1971,7 +1971,7 @@ pub mod tests {
     use super::*;
     use editor::{display_map::DisplayRow, DisplayPoint};
     use gpui::{Action, TestAppContext, WindowHandle};
-    use project::FakeFs;
+    use project::{search::SearchResult, FakeFs};
     use serde_json::json;
     use settings::SettingsStore;
     use workspace::DeploySearch;
@@ -2119,7 +2119,7 @@ pub mod tests {
         )
         .await;
         let project = Project::test(fs.clone(), ["/dir".as_ref()], cx).await;
-        let window = cx.add_window(|cx| Workspace::test_new(project, cx));
+        let window = cx.add_window(|cx| Workspace::test_new(project.clone(), cx));
         let workspace = window;
         let search_bar = window.build_view(cx, |_| ProjectSearchBar::new());
 
@@ -2259,6 +2259,35 @@ pub mod tests {
             })
             .unwrap();
         cx.background_executor.run_until_parked();
+        let results = project
+            .update(cx, |project, cx| {
+                project.search(
+                    SearchQuery::text(
+                        "TWO",
+                        false,
+                        false,
+                        false,
+                        PathMatcher::default(),
+                        PathMatcher::default(),
+                        None,
+                    )
+                    .unwrap(),
+                    cx,
+                )
+            })
+            .collect::<Vec<_>>()
+            .await;
+        let mut paths = Vec::new();
+        for result in results {
+            if let SearchResult::Buffer { buffer, .. } = result {
+                paths.push(buffer.read_with(cx, |buffer, _| {
+                    buffer.file().unwrap().path().to_string_lossy().to_string()
+                }));
+            } else {
+                unreachable!()
+            }
+        }
+        assert_eq!(paths, ["three.rs".to_string(), "two.rs".to_string()]);
         window.update(cx, |_, cx| {
             search_view.update(cx, |search_view, cx| {
                 assert_eq!(
